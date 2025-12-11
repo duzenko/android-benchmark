@@ -2,9 +2,12 @@ package name.duzenko.benchmark
 
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
 import android.widget.TableRow
 import android.widget.TextView
+import android.widget.Toast
 import name.duzenko.benchmark.databinding.ActivityMainBinding
 import java.text.DecimalFormat
 
@@ -50,15 +53,35 @@ class MainActivity : AppCompatActivity() {
 
             val parts = result.split("|")
             val testName = parts[0]
-            val elementsPerSecond = parts[1].toDouble()
-            val bandwidth = parts[2].toDouble()
+            val numElements = parts[1].toLong()
+            val elementSize = parts[2].toInt()
+            val durationMs = parts[3].toDouble()
+            val repetitions = parts[4].toInt()
+
+            val totalBytesProcessed = numElements * elementSize * repetitions
+            val bandwidth = (totalBytesProcessed / (1024.0 * 1024.0)) / (durationMs / 1000.0)
+            val performanceMetric = (numElements * repetitions) / (durationMs / 1000.0)
+
+            val dataSize = numElements * elementSize
+            val dataSizeInMB = dataSize / (1024.0 * 1024.0)
+            val detailsFormat = DecimalFormat("#,##0.##")
+            val detailsString = result;//"Size: ${detailsFormat.format(dataSizeInMB)} MB, Time: ${detailsFormat.format(durationMs)} ms"
 
             val significantDigitsFormat = DecimalFormat("@@@")
 
-            val performanceString = if (elementsPerSecond > 1e9) {
-                "${significantDigitsFormat.format(elementsPerSecond / 1e9)} B/s"
+            val performanceString: String
+            if (testName.startsWith("memset")) {
+                if (performanceMetric > 1e9) {
+                    performanceString = "${significantDigitsFormat.format(performanceMetric / 1e9)} GB/s"
+                } else {
+                    performanceString = "${significantDigitsFormat.format(performanceMetric / 1e6)} MB/s"
+                }
             } else {
-                "${significantDigitsFormat.format(elementsPerSecond / 1e6)} M/s"
+                if (performanceMetric > 1e9) {
+                    performanceString = "${significantDigitsFormat.format(performanceMetric / 1e9)} GE/s"
+                } else {
+                    performanceString = "${significantDigitsFormat.format(performanceMetric / 1e6)} ME/s"
+                }
             }
 
             val bandwidthString: String
@@ -70,6 +93,19 @@ class MainActivity : AppCompatActivity() {
             }
 
             val tableRow = TableRow(this)
+            tableRow.tag = detailsString
+
+            val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDoubleTap(e: MotionEvent): Boolean {
+                    Toast.makeText(this@MainActivity, tableRow.tag.toString(), Toast.LENGTH_LONG).show()
+                    return true
+                }
+            })
+
+            tableRow.setOnTouchListener { _, event ->
+                gestureDetector.onTouchEvent(event)
+                true
+            }
 
             val testNameView = TextView(this).apply {
                 text = testName
