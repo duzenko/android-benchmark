@@ -13,3 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+app/src/main/cpp/out/
+.vs/
+app/src/main/cpp/build/
+app/src/main/cpp/main.obj
+.claude/settings.local.json
