@@ -1,7 +1,15 @@
 package name.duzenko.benchmark
 
-class BenchmarkController(private val model: BenchmarkModel, private val view: MainActivity) {
+interface BenchmarkView {
+    fun showProgress(total: Int)
+    fun addTableRow(result: String, completed: Int, total: Int)
+    fun hideProgress()
+}
 
+class BenchmarkController(
+    private val model: BenchmarkModel,
+    private val view: BenchmarkView
+) {
     private var completedTests = 0
 
     init {

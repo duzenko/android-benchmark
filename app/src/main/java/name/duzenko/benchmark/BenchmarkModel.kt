@@ -1,18 +1,27 @@
 package name.duzenko.benchmark
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+
+interface BenchmarkListener {
+    fun onBenchmarkStarted()
+    fun onProgressUpdated(result: String)
+    fun onBenchmarkFinished()
+}
 
 class BenchmarkModel {
 
-    var totalTests = 0
+    var totalTests: Int = 0
         private set
 
-    var isRunning = false
+    var isRunning: Boolean = false
         private set
 
     private var listener: BenchmarkListener? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     init {
         totalTests = getTestCount()
@@ -28,7 +37,7 @@ class BenchmarkModel {
 
         listener?.onBenchmarkStarted()
 
-        GlobalScope.launch(Dispatchers.IO) {
+        scope.launch {
             runAllMemoryBenchmarks(object : BenchmarkCallback {
                 override fun onProgressUpdate(result: String) {
                     listener?.onProgressUpdated(result)
@@ -42,23 +51,17 @@ class BenchmarkModel {
         }
     }
 
-    /**
-     * A native method that is implemented by the 'myapplication' native library,
-     * which is packaged with this application.
-     */
+    fun cancel() {
+        scope.cancel()
+        isRunning = false
+    }
+
     private external fun runAllMemoryBenchmarks(callback: BenchmarkCallback)
     private external fun getTestCount(): Int
 
     companion object {
-        // Used to load the 'myapplication' library on application startup.
         init {
             System.loadLibrary("myapplication")
         }
     }
-}
-
-interface BenchmarkListener {
-    fun onBenchmarkStarted()
-    fun onProgressUpdated(result: String)
-    fun onBenchmarkFinished()
 }

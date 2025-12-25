@@ -1,6 +1,6 @@
 package name.duzenko.benchmark
 
-import androidx.appcompat.app.AppCompatActivity
+import android.graphics.Typeface
 import android.os.Bundle
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -8,10 +8,11 @@ import android.view.View
 import android.widget.TableRow
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 import name.duzenko.benchmark.databinding.ActivityMainBinding
 import java.text.DecimalFormat
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), BenchmarkView {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var controller: BenchmarkController
@@ -32,7 +33,7 @@ class MainActivity : AppCompatActivity() {
         binding.resultsTable.visibility = View.GONE
     }
 
-    fun showProgress(total: Int) {
+    override fun showProgress(total: Int) {
         runOnUiThread {
             binding.runBenchmarksButton.isEnabled = false
             binding.progressBar.visibility = View.VISIBLE
@@ -47,93 +48,132 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun addTableRow(result: String, completed: Int, total: Int) {
+    override fun addTableRow(result: String, completed: Int, total: Int) {
         runOnUiThread {
             binding.progressText.text = "$completed/$total"
 
             val parts = result.split("|")
             val testName = parts[0]
-            val numElements = parts[1].toLong()
-            val elementSize = parts[2].toInt()
-            val durationMs = parts[3].toDouble()
-            val repetitions = parts[4].toInt()
 
-            val totalBytesProcessed = numElements * elementSize * repetitions
-            val bandwidth = (totalBytesProcessed / (1024.0 * 1024.0)) / (durationMs / 1000.0)
-            val performanceMetric = (numElements * repetitions) / (durationMs / 1000.0)
-
-            val dataSize = numElements * elementSize
-            val dataSizeInMB = dataSize / (1024.0 * 1024.0)
-            val detailsFormat = DecimalFormat("#,##0.##")
-            val detailsString = result;//"Size: ${detailsFormat.format(dataSizeInMB)} MB, Time: ${detailsFormat.format(durationMs)} ms"
-
-            val significantDigitsFormat = DecimalFormat("@@@")
-
-            val performanceString: String
-            if (testName.startsWith("memset")) {
-                if (performanceMetric > 1e9) {
-                    performanceString = "${significantDigitsFormat.format(performanceMetric / 1e9)} GB/s"
-                } else {
-                    performanceString = "${significantDigitsFormat.format(performanceMetric / 1e6)} MB/s"
-                }
+            if (testName.startsWith(SECTION_PREFIX)) {
+                addSectionHeader(testName)
             } else {
-                if (performanceMetric > 1e9) {
-                    performanceString = "${significantDigitsFormat.format(performanceMetric / 1e9)} GE/s"
-                } else {
-                    performanceString = "${significantDigitsFormat.format(performanceMetric / 1e6)} ME/s"
-                }
+                addResultRow(parts)
             }
-
-            val bandwidthString: String
-            if (bandwidth >= 1024) {
-                val bandwidthInGB = bandwidth / 1024.0
-                bandwidthString = "${significantDigitsFormat.format(bandwidthInGB)} GB/s"
-            } else {
-                bandwidthString = "${significantDigitsFormat.format(bandwidth)} MB/s"
-            }
-
-            val tableRow = TableRow(this)
-            tableRow.tag = detailsString
-
-            val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-                override fun onDoubleTap(e: MotionEvent): Boolean {
-                    Toast.makeText(this@MainActivity, tableRow.tag.toString(), Toast.LENGTH_LONG).show()
-                    return true
-                }
-            })
-
-            tableRow.setOnTouchListener { _, event ->
-                gestureDetector.onTouchEvent(event)
-                true
-            }
-
-            val testNameView = TextView(this).apply {
-                text = testName
-                textSize = 16f
-            }
-            tableRow.addView(testNameView)
-
-            val performanceView = TextView(this).apply {
-                text = performanceString
-                textSize = 16f
-            }
-            tableRow.addView(performanceView)
-
-            val bandwidthView = TextView(this).apply {
-                text = bandwidthString
-                textSize = 16f
-            }
-            tableRow.addView(bandwidthView)
-
-            binding.resultsTable.addView(tableRow)
         }
     }
 
-    fun hideProgress() {
+    private fun addSectionHeader(testName: String) {
+        val sectionName = testName
+            .removePrefix(SECTION_PREFIX)
+            .removeSuffix(SECTION_SUFFIX)
+
+        val tableRow = TableRow(this)
+        val sectionView = TextView(this).apply {
+            text = "\n$sectionName"
+            textSize = TEXT_SIZE_SECTION
+            setTypeface(null, Typeface.BOLD)
+        }
+        tableRow.addView(sectionView)
+        binding.resultsTable.addView(tableRow)
+    }
+
+    private fun addResultRow(parts: List<String>) {
+        val testName = parts[0]
+        val numElements = parts[1].toLong()
+        val elementSize = parts[2].toInt()
+        val durationMs = parts[3].toDouble()
+        val repetitions = parts[4].toInt()
+
+        val performanceString = formatPerformance(testName, numElements, repetitions, durationMs)
+        val bandwidthString = formatBandwidth(numElements, elementSize, repetitions, durationMs)
+
+        val tableRow = createClickableRow(parts.joinToString("|"))
+        tableRow.addView(createTextView(testName))
+        tableRow.addView(createTextView(performanceString))
+        tableRow.addView(createTextView(bandwidthString))
+
+        binding.resultsTable.addView(tableRow)
+    }
+
+    private fun formatPerformance(
+        testName: String,
+        numElements: Long,
+        repetitions: Int,
+        durationMs: Double
+    ): String {
+        val performanceMetric = (numElements * repetitions) / (durationMs / 1000.0)
+
+        return if (testName.startsWith("memset")) {
+            formatWithUnit(performanceMetric, "B/s")
+        } else {
+            formatWithUnit(performanceMetric, "E/s")
+        }
+    }
+
+    private fun formatBandwidth(
+        numElements: Long,
+        elementSize: Int,
+        repetitions: Int,
+        durationMs: Double
+    ): String {
+        val totalBytesProcessed = numElements * elementSize * repetitions
+        val bandwidth = (totalBytesProcessed / (1024.0 * 1024.0)) / (durationMs / 1000.0)
+
+        return if (bandwidth >= 1024) {
+            "${SIGNIFICANT_DIGITS_FORMAT.format(bandwidth / 1024.0)} GB/s"
+        } else {
+            "${SIGNIFICANT_DIGITS_FORMAT.format(bandwidth)} MB/s"
+        }
+    }
+
+    private fun formatWithUnit(value: Double, baseUnit: String): String {
+        return if (value > 1e9) {
+            "${SIGNIFICANT_DIGITS_FORMAT.format(value / 1e9)} G$baseUnit"
+        } else {
+            "${SIGNIFICANT_DIGITS_FORMAT.format(value / 1e6)} M$baseUnit"
+        }
+    }
+
+    private fun createClickableRow(detailsString: String): TableRow {
+        val tableRow = TableRow(this)
+        tableRow.tag = detailsString
+
+        val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                Toast.makeText(this@MainActivity, tableRow.tag.toString(), Toast.LENGTH_LONG).show()
+                return true
+            }
+        })
+
+        tableRow.setOnTouchListener { _, event ->
+            gestureDetector.onTouchEvent(event)
+            true
+        }
+
+        return tableRow
+    }
+
+    private fun createTextView(text: String): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = TEXT_SIZE_RESULT
+        }
+    }
+
+    override fun hideProgress() {
         runOnUiThread {
             binding.progressBar.visibility = View.GONE
             binding.progressText.visibility = View.GONE
             binding.runBenchmarksButton.isEnabled = true
         }
+    }
+
+    companion object {
+        private const val SECTION_PREFIX = "---"
+        private const val SECTION_SUFFIX = "---"
+        private const val TEXT_SIZE_SECTION = 18f
+        private const val TEXT_SIZE_RESULT = 16f
+        private val SIGNIFICANT_DIGITS_FORMAT = DecimalFormat("@@@")
     }
 }
