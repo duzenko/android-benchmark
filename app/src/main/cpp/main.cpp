@@ -102,45 +102,42 @@ void runBenchmarks() {
     auto indexed_worker = benchmark::makeIndexedWorker();
     auto memset_worker = benchmark::makeMemsetWorker();
 
+    const auto& features = cpu_features::X86Features::get();
+
     std::cout << std::endl;
     std::cout << "Detected CPU cores: " << num_cores << std::endl;
+    std::cout << "CPU Features: SSE2=" << features.has_sse2 
+              << ", AVX=" << features.has_avx
+              << ", AVX2=" << features.has_avx2
+              << ", AVX512F=" << features.has_avx512f << std::endl;
     std::cout << std::endl;
 
     printHeader();
 
     // Single-threaded tests
     std::cout << "Single-threaded:" << std::endl;
+    printResult("32-bit", runBenchmark<uint32_t>(1, indexed_worker));
     printResult("64-bit", runBenchmark<uint64_t>(1, indexed_worker));
 
-#if defined(HAS_SSE2) || defined(HAS_AVX_RUNTIME_CHECK)
-    printResult("128-bit SSE", runBenchmark<__m128i>(1, sse_worker));
-    printResult("128-bit SSE NT", runBenchmark<__m128i>(1, sse_stream_worker));
+    if (features.has_sse2) {
+#if defined(_M_X64) || defined(__x86_64__)
+        printResult("64-bit NT", runBenchmark<int64_t>(1, scalar_stream_worker));
+#else
+        printResult("32-bit NT", runBenchmark<int32_t>(1, scalar_stream_worker_32));
 #endif
-
-#if defined(HAS_AVX)
-    printResult("256-bit AVX", runBenchmark<__m256i>(1, avx_worker));
-    printResult("256-bit AVX NT", runBenchmark<__m256i>(1, avx_stream_worker));
-#elif defined(HAS_AVX_RUNTIME_CHECK)
-    if (hasAVX()) {
-        printResult("256-bit AVX", runBenchmark<__m256i>(1, avx_worker));
-        printResult("256-bit AVX NT", runBenchmark<__m256i>(1, avx_stream_worker));
+        printResult("128-bit SSE", runBenchmark<__m128i>(1, sse_worker));
+        printResult("128-bit SSE NT", runBenchmark<__m128i>(1, sse_stream_worker));
     }
-#endif
 
-#if defined(HAS_AVX512)
-    printResult("512-bit AVX-512", runBenchmark<__m512i>(1, avx512_worker));
-    printResult("512-bit AVX-512 NT", runBenchmark<__m512i>(1, avx512_stream_worker));
-#elif defined(HAS_AVX_RUNTIME_CHECK)
-    if (hasAVX512()) {
+    if (features.has_avx2) {
+        printResult("256-bit AVX2", runBenchmark<__m256i>(1, avx_worker));
+        printResult("256-bit AVX2 NT", runBenchmark<__m256i>(1, avx_stream_worker));
+    }
+
+    if (features.has_avx512f) {
         printResult("512-bit AVX-512", runBenchmark<__m512i>(1, avx512_worker));
         printResult("512-bit AVX-512 NT", runBenchmark<__m512i>(1, avx512_stream_worker));
     }
-#endif
-
-#ifdef HAS_NEON
-    printResult("128-bit NEON", runBenchmark<uint8x16_t>(1, neon_worker));
-    printResult("128-bit NEON NT", runBenchmark<uint8x16_t>(1, neon_stream_worker));
-#endif
 
     printResult("memset", runBenchmark<uint8_t>(1, memset_worker));
 
@@ -148,42 +145,39 @@ void runBenchmarks() {
     if (num_cores >= 2) {
         printSection("Multi-threaded scaling (stops at <5% improvement)");
 
+        std::cout << std::endl << "32-bit:" << std::endl;
+        runScalingTest<uint32_t>("32-bit", indexed_worker, num_cores);
+
         std::cout << std::endl << "64-bit:" << std::endl;
         runScalingTest<uint64_t>("64-bit", indexed_worker, num_cores);
 
-#if defined(HAS_AVX)
-        std::cout << std::endl << "256-bit AVX:" << std::endl;
-        runScalingTest<__m256i>("256-bit AVX", avx_worker, num_cores);
-
-        std::cout << std::endl << "256-bit AVX NT:" << std::endl;
-        runScalingTest<__m256i>("256-bit AVX NT", avx_stream_worker, num_cores);
-#elif defined(HAS_AVX_RUNTIME_CHECK)
-        if (hasAVX()) {
-            std::cout << std::endl << "256-bit AVX:" << std::endl;
-            runScalingTest<__m256i>("256-bit AVX", avx_worker, num_cores);
-
-            std::cout << std::endl << "256-bit AVX NT:" << std::endl;
-            runScalingTest<__m256i>("256-bit AVX NT", avx_stream_worker, num_cores);
-        }
+        if (features.has_sse2) {
+#if defined(_M_X64) || defined(__x86_64__)
+            std::cout << std::endl << "64-bit NT:" << std::endl;
+            runScalingTest<int64_t>("64-bit NT", scalar_stream_worker, num_cores);
+#else
+            std::cout << std::endl << "32-bit NT:" << std::endl;
+            runScalingTest<int32_t>("32-bit NT", scalar_stream_worker_32, num_cores);
 #endif
+            std::cout << std::endl << "128-bit SSE:" << std::endl;
+            runScalingTest<__m128i>("128-bit SSE", sse_worker, num_cores);
+            std::cout << std::endl << "128-bit SSE NT:" << std::endl;
+            runScalingTest<__m128i>("128-bit SSE NT", sse_stream_worker, num_cores);
+        }
 
-#if defined(HAS_AVX512)
-        std::cout << std::endl << "512-bit AVX-512 NT:" << std::endl;
-        runScalingTest<__m512i>("512-bit AVX-512 NT", avx512_stream_worker, num_cores);
-#elif defined(HAS_AVX_RUNTIME_CHECK)
-        if (hasAVX512()) {
+        if (features.has_avx2) {
+            std::cout << std::endl << "256-bit AVX2:" << std::endl;
+            runScalingTest<__m256i>("256-bit AVX2", avx_worker, num_cores);
+            std::cout << std::endl << "256-bit AVX2 NT:" << std::endl;
+            runScalingTest<__m256i>("256-bit AVX2 NT", avx_stream_worker, num_cores);
+        }
+
+        if (features.has_avx512f) {
+            std::cout << std::endl << "512-bit AVX-512:" << std::endl;
+            runScalingTest<__m512i>("512-bit AVX-512", avx512_worker, num_cores);
             std::cout << std::endl << "512-bit AVX-512 NT:" << std::endl;
             runScalingTest<__m512i>("512-bit AVX-512 NT", avx512_stream_worker, num_cores);
         }
-#endif
-
-#ifdef HAS_NEON
-        std::cout << std::endl << "128-bit NEON:" << std::endl;
-        runScalingTest<uint8x16_t>("128-bit NEON", neon_worker, num_cores);
-
-        std::cout << std::endl << "128-bit NEON NT:" << std::endl;
-        runScalingTest<uint8x16_t>("128-bit NEON NT", neon_stream_worker, num_cores);
-#endif
 
         std::cout << std::endl << "memset:" << std::endl;
         runScalingTest<uint8_t>("memset", memset_worker, num_cores);

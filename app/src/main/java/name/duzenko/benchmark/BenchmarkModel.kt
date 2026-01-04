@@ -31,6 +31,10 @@ class BenchmarkModel {
         this.listener = listener
     }
 
+    fun getCoreCount(): Int {
+        return getHardwareConcurrency()
+    }
+
     fun runBenchmarks() {
         if (isRunning) return
         isRunning = true
@@ -58,6 +62,7 @@ class BenchmarkModel {
 
     private external fun runAllMemoryBenchmarks(callback: BenchmarkCallback)
     private external fun getTestCount(): Int
+    private external fun getHardwareConcurrency(): Int
 
     companion object {
         init {

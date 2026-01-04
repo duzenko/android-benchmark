@@ -11,6 +11,8 @@
 #include <functional>
 #include <memory>
 
+#include "CpuFeatures.h"
+
 // ============================================================================
 // Configuration Constants
 // ============================================================================
@@ -25,62 +27,27 @@ constexpr double kMinImprovementThreshold = 0.05;  // 5%
 
 }  // namespace benchmark
 
-// ============================================================================
-// SIMD Support Detection
-// ============================================================================
+// ============================================================================// SIMD Support Headers (for types and intrinsics)// ============================================================================
 
-#if defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
-    #define HAS_SSE2 1
-    #include <emmintrin.h>
-#endif
-
-#if defined(__AVX__) || defined(__AVX2__)
-    #define HAS_AVX 1
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
     #include <immintrin.h>
-#elif defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
-    #include <intrin.h>
-    #include <immintrin.h>
-    #define HAS_AVX_RUNTIME_CHECK 1
-#endif
-
-#if defined(__AVX512F__)
-    #define HAS_AVX512 1
-#endif
-
-#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#elif defined(__ARM_NEON) || defined(__ARM_NEON__)
     #define HAS_NEON 1
     #include <arm_neon.h>
 #endif
 
-// ============================================================================
-// Runtime CPU Feature Detection (MSVC)
-// ============================================================================
-
-#ifdef HAS_AVX_RUNTIME_CHECK
-inline bool hasAVX() {
-    int cpuInfo[4];
-    __cpuid(cpuInfo, 1);
-    return (cpuInfo[2] & (1 << 28)) != 0;
-}
-
-inline bool hasAVX512() {
-    int cpuInfo[4];
-    __cpuidex(cpuInfo, 7, 0);
-    return (cpuInfo[1] & (1 << 16)) != 0;
-}
+// ============================================================================// Logging// ============================================================================// Helper for target attribute
+#if (defined(__clang__) || defined(__GNUC__))
+#define TARGET_ATTRIBUTE(T) __attribute__((__target__(T)))
+#else
+#define TARGET_ATTRIBUTE(T)
 #endif
-
-// ============================================================================
-// Logging
-// ============================================================================
 
 #ifndef LOG_DEBUG
 #define LOG_DEBUG(fmt, ...)
 #endif
 
-// ============================================================================
-// Aligned Memory Allocation
-// ============================================================================
+// ============================================================================// Aligned Memory Allocation// ============================================================================
 
 namespace benchmark {
 
@@ -123,9 +90,7 @@ AlignedPtr<T> makeAligned(size_t count, size_t alignment = 64) {
 
 }  // namespace benchmark
 
-// ============================================================================
-// Benchmark Result
-// ============================================================================
+// ============================================================================// Benchmark Result// ============================================================================
 
 struct BenchmarkResult {
     long long num_elements = 0;
@@ -157,9 +122,7 @@ inline BenchmarkResult parseBenchmarkResult(const std::string& raw) {
     return result;
 }
 
-// ============================================================================
-// Core Benchmark Function
-// ============================================================================
+// ============================================================================// Core Benchmark Function// ============================================================================
 
 template<typename T, typename Worker>
 std::string runBenchmark(int num_threads, Worker worker) {
@@ -230,9 +193,7 @@ std::string runBenchmark(int num_threads, Worker worker) {
     return result.str();
 }
 
-// ============================================================================
-// Common Worker Functions
-// ============================================================================
+// ============================================================================// Common Worker Functions// ============================================================================
 
 namespace benchmark {
 
@@ -257,11 +218,35 @@ inline auto makeMemsetWorker() {
 
 }  // namespace benchmark
 
-// ============================================================================
-// x86 SIMD Workers (SSE/AVX/AVX-512)
-// ============================================================================
+// ============================================================================// x86 SIMD Workers (SSE/AVX/AVX-512)// ============================================================================
 
-#if defined(HAS_SSE2) || defined(HAS_AVX_RUNTIME_CHECK)
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
+
+#if defined(_M_X64) || defined(__x86_64__)
+TARGET_ATTRIBUTE("sse2")
+inline void scalar_stream_worker(int64_t* start, int64_t* end, int repetitions) {
+    for (int j = 0; j < repetitions; ++j) {
+        int64_t val = static_cast<int64_t>(j);
+        for (int64_t* p = start; p < end; ++p) {
+            _mm_stream_si64(p, val);
+        }
+    }
+    _mm_sfence();
+}
+#else
+TARGET_ATTRIBUTE("sse2")
+inline void scalar_stream_worker_32(int32_t* start, int32_t* end, int repetitions) {
+    for (int j = 0; j < repetitions; ++j) {
+        int32_t val = static_cast<int32_t>(j);
+        for (int32_t* p = start; p < end; ++p) {
+            _mm_stream_si32(p, val);
+        }
+    }
+    _mm_sfence();
+}
+#endif
+
+TARGET_ATTRIBUTE("sse2")
 inline void sse_worker(__m128i* start, __m128i* end, int repetitions) {
     for (int j = 0; j < repetitions; ++j) {
         __m128i mm = _mm_set1_epi64x(static_cast<int64_t>(j));
@@ -271,6 +256,7 @@ inline void sse_worker(__m128i* start, __m128i* end, int repetitions) {
     }
 }
 
+TARGET_ATTRIBUTE("sse2")
 inline void sse_stream_worker(__m128i* start, __m128i* end, int repetitions) {
     for (int j = 0; j < repetitions; ++j) {
         __m128i mm = _mm_set1_epi64x(static_cast<int64_t>(j));
@@ -280,9 +266,8 @@ inline void sse_stream_worker(__m128i* start, __m128i* end, int repetitions) {
     }
     _mm_sfence();
 }
-#endif
 
-#if defined(HAS_AVX) || defined(HAS_AVX_RUNTIME_CHECK)
+TARGET_ATTRIBUTE("avx2")
 inline void avx_worker(__m256i* start, __m256i* end, int repetitions) {
     for (int j = 0; j < repetitions; ++j) {
         __m256i mm = _mm256_set1_epi64x(static_cast<int64_t>(j));
@@ -292,6 +277,7 @@ inline void avx_worker(__m256i* start, __m256i* end, int repetitions) {
     }
 }
 
+TARGET_ATTRIBUTE("avx2")
 inline void avx_stream_worker(__m256i* start, __m256i* end, int repetitions) {
     for (int j = 0; j < repetitions; ++j) {
         __m256i mm = _mm256_set1_epi64x(static_cast<int64_t>(j));
@@ -301,9 +287,8 @@ inline void avx_stream_worker(__m256i* start, __m256i* end, int repetitions) {
     }
     _mm_sfence();
 }
-#endif
 
-#if defined(HAS_AVX512) || defined(HAS_AVX_RUNTIME_CHECK)
+TARGET_ATTRIBUTE("avx512f")
 inline void avx512_worker(__m512i* start, __m512i* end, int repetitions) {
     for (int j = 0; j < repetitions; ++j) {
         __m512i mm = _mm512_set1_epi64(static_cast<int64_t>(j));
@@ -313,6 +298,7 @@ inline void avx512_worker(__m512i* start, __m512i* end, int repetitions) {
     }
 }
 
+TARGET_ATTRIBUTE("avx512f")
 inline void avx512_stream_worker(__m512i* start, __m512i* end, int repetitions) {
     for (int j = 0; j < repetitions; ++j) {
         __m512i mm = _mm512_set1_epi64(static_cast<int64_t>(j));
@@ -324,9 +310,7 @@ inline void avx512_stream_worker(__m512i* start, __m512i* end, int repetitions) 
 }
 #endif
 
-// ============================================================================
-// ARM NEON Workers
-// ============================================================================
+// ============================================================================// ARM NEON Workers// ============================================================================
 
 #ifdef HAS_NEON
 inline void neon_worker(uint8x16_t* start, uint8x16_t* end, int repetitions) {

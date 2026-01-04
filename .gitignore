@@ -19,3 +19,4 @@ app/src/main/cpp/build/
 app/src/main/cpp/main.obj
 .claude/settings.local.json
 app/src/main/cpp/run_once.obj
+/app/release/app-release.aab

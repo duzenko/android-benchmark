@@ -2,20 +2,24 @@ package name.duzenko.benchmark
 
 import android.graphics.Typeface
 import android.os.Bundle
+import android.text.TextUtils
 import android.view.GestureDetector
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.widget.TableRow
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.widget.TextViewCompat
 import name.duzenko.benchmark.databinding.ActivityMainBinding
 import java.text.DecimalFormat
 
-class MainActivity : AppCompatActivity(), BenchmarkView {
+class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private lateinit var controller: BenchmarkController
+    private val viewModel: BenchmarkViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -23,43 +27,49 @@ class MainActivity : AppCompatActivity(), BenchmarkView {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        val model = BenchmarkModel()
-        controller = BenchmarkController(model, this)
-
         binding.runBenchmarksButton.setOnClickListener {
-            controller.onRunBenchmarksClicked()
+            viewModel.runBenchmarks()
         }
 
-        binding.resultsTable.visibility = View.GONE
+        binding.coreCountText.text = "Cores: ${viewModel.coreCount}"
+
+        observeViewModel()
     }
 
-    override fun showProgress(total: Int) {
-        runOnUiThread {
-            binding.runBenchmarksButton.isEnabled = false
-            binding.progressBar.visibility = View.VISIBLE
-            binding.progressText.visibility = View.VISIBLE
-            binding.progressText.text = "0/$total"
-            binding.resultsTable.visibility = View.VISIBLE
+    private fun observeViewModel() {
+        viewModel.isRunning.observe(this) { isRunning ->
+            binding.runBenchmarksButton.isEnabled = !isRunning
+            binding.progressBar.visibility = if (isRunning) View.VISIBLE else View.GONE
+            binding.progressText.visibility = if (isRunning) View.VISIBLE else View.GONE
+        }
 
+        viewModel.results.observe(this) { results ->
+            binding.resultsTable.visibility = if (results.isNotEmpty()) View.VISIBLE else View.GONE
             // Clear previous results, keeping the header row
             while (binding.resultsTable.childCount > 1) {
                 binding.resultsTable.removeViewAt(1)
             }
+
+            results.forEachIndexed { index, result ->
+                addTableRow(result, index + 1, viewModel.totalTests)
+            }
+        }
+
+        viewModel.progress.observe(this) { progress ->
+            if (progress != null) {
+                binding.progressText.text = "${progress.first}/${progress.second}"
+            }
         }
     }
 
-    override fun addTableRow(result: String, completed: Int, total: Int) {
-        runOnUiThread {
-            binding.progressText.text = "$completed/$total"
+    private fun addTableRow(result: String, completed: Int, total: Int) {
+        val parts = result.split("|")
+        val testName = parts[0]
 
-            val parts = result.split("|")
-            val testName = parts[0]
-
-            if (testName.startsWith(SECTION_PREFIX)) {
-                addSectionHeader(testName)
-            } else {
-                addResultRow(parts)
-            }
+        if (testName.startsWith(SECTION_PREFIX)) {
+            addSectionHeader(testName)
+        } else {
+            addResultRow(parts)
         }
     }
 
@@ -71,10 +81,13 @@ class MainActivity : AppCompatActivity(), BenchmarkView {
         val tableRow = TableRow(this)
         val sectionView = TextView(this).apply {
             text = "\n$sectionName"
-            textSize = TEXT_SIZE_SECTION
+            textSize = resources.getDimension(R.dimen.text_size_section)
             setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER_HORIZONTAL
         }
-        tableRow.addView(sectionView)
+        val layoutParams = TableRow.LayoutParams(TableRow.LayoutParams.MATCH_PARENT, TableRow.LayoutParams.WRAP_CONTENT)
+        layoutParams.span = 3
+        tableRow.addView(sectionView, layoutParams)
         binding.resultsTable.addView(tableRow)
     }
 
@@ -89,9 +102,28 @@ class MainActivity : AppCompatActivity(), BenchmarkView {
         val bandwidthString = formatBandwidth(numElements, elementSize, repetitions, durationMs)
 
         val tableRow = createClickableRow(parts.joinToString("|"))
-        tableRow.addView(createTextView(testName))
-        tableRow.addView(createTextView(performanceString))
-        tableRow.addView(createTextView(bandwidthString))
+
+        val testNameView = createTextView(testName).apply {
+            layoutParams = TableRow.LayoutParams(0, TableRow.LayoutParams.WRAP_CONTENT, 2f)
+            ellipsize = TextUtils.TruncateAt.END
+            maxLines = 1
+        }
+
+        val performanceView = createTextView(performanceString).apply {
+            layoutParams = TableRow.LayoutParams(0, TableRow.LayoutParams.WRAP_CONTENT, 1f)
+            ellipsize = TextUtils.TruncateAt.END
+            maxLines = 1
+        }
+
+        val bandwidthView = createTextView(bandwidthString).apply {
+            layoutParams = TableRow.LayoutParams(0, TableRow.LayoutParams.WRAP_CONTENT, 1f)
+            ellipsize = TextUtils.TruncateAt.END
+            maxLines = 1
+        }
+
+        tableRow.addView(testNameView)
+        tableRow.addView(performanceView)
+        tableRow.addView(bandwidthView)
 
         binding.resultsTable.addView(tableRow)
     }
@@ -157,23 +189,15 @@ class MainActivity : AppCompatActivity(), BenchmarkView {
     private fun createTextView(text: String): TextView {
         return TextView(this).apply {
             this.text = text
-            textSize = TEXT_SIZE_RESULT
-        }
-    }
-
-    override fun hideProgress() {
-        runOnUiThread {
-            binding.progressBar.visibility = View.GONE
-            binding.progressText.visibility = View.GONE
-            binding.runBenchmarksButton.isEnabled = true
+            setPadding(8, 0, 8, 0)
+            textSize = resources.getDimension(R.dimen.text_size_result)
+            TextViewCompat.setAutoSizeTextTypeWithDefaults(this, TextViewCompat.AUTO_SIZE_TEXT_TYPE_UNIFORM)
         }
     }
 
     companion object {
         private const val SECTION_PREFIX = "---"
         private const val SECTION_SUFFIX = "---"
-        private const val TEXT_SIZE_SECTION = 18f
-        private const val TEXT_SIZE_RESULT = 16f
         private val SIGNIFICANT_DIGITS_FORMAT = DecimalFormat("@@@")
     }
 }
